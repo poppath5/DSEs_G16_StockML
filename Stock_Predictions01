@@ -1,0 +1,145 @@
+def Stock_Predictions(stock_symbol, start_date, end_date):
+  df = sx.loadHistData(stock_symbol, start=start_date,OHLC=True, Volume=True)
+  # Create a new dataframe with only the 'Close column'
+  data = df.filter(['CLOSE'])
+  # Convert the dataframe to a numpy array
+  dataset = data.values
+  # Get the number of rows to train the model on
+  training_data_len = math.ceil(len(dataset)* .8)
+  # Scale the data
+  scaler = MinMaxScaler(feature_range=(0,1))
+  scaled_data = scaler.fit_transform(dataset)
+  # Create the training data set
+  # Create the scaled training data set
+  train_data = scaled_data[0:training_data_len, :]
+  # Split the data in x_train and y_train data sets
+  x_train = []
+  y_train = []
+  for i in range(200, len(train_data)):
+    x_train.append(train_data[i-200:i,0])
+    y_train.append(train_data[i,0])
+  # Convert the x_train and y_train to numpy arrays
+  x_train, y_train = np.array(x_train), np.array(y_train)
+  # Reshape the data
+  x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+  # Build the LSTM Model
+  model = Sequential()
+  model.add(LSTM(50, return_sequences=True, input_shape= (x_train.shape[1],1)))
+  model.add(LSTM(50, return_sequences= False))
+  model.add(Dense(25))
+  model.add(Dense(1))
+  # Compile the model
+  model.compile(optimizer='adam', loss= 'mean_squared_error')
+  # Train the model
+  model.fit(x_train, y_train, batch_size=1, epochs= 1)
+  # Create the testing data set
+  # Create a new array containing scaled values from index 1543 to 2003 
+  test_data = scaled_data[training_data_len - 200: , :]
+  # Create the data sets x_test and y_test
+  x_test = []
+  y_test = dataset[training_data_len:, :]
+  for i in range(200, len(test_data)):
+    x_test.append(test_data[i-200:i, 0])
+  # Convert the data to a numpy array
+  x_test = np.array(x_test)
+  # Reshape
+  x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1],1))
+  # Get the model predicted price values
+  predictions = model.predict(x_test)
+  predictions = scaler.inverse_transform(predictions)
+  # Get the root mean squared error (RMSE)
+  rmse = np.sqrt( np.mean( predictions - y_test )**2 )
+  print('                                     ')
+  print('*************************************')
+  print('RMSE = {}'.format(rmse))
+  print('*************************************')
+  print('                                     ')
+  # Visualize data
+  # Data Preparation to Plot the data with EMA
+  ShortEMA = data.CLOSE.ewm(span=10, adjust= False).mean()
+  MiddleEMA = data.CLOSE.ewm(span=25, adjust= False).mean()
+  LongEMA = data.CLOSE.ewm(span=50, adjust= False).mean()
+  EMA100 = data.CLOSE.ewm(span=100, adjust= False).mean()
+  EMA200 = data.CLOSE.ewm(span=200, adjust= False).mean()
+
+  # Data Preparation to plot the close, valid, and predictive price
+  train = data[:training_data_len]
+  valid = data[training_data_len:]
+  valid['Predictions'] = predictions
+
+  # Plot the close price and its 5 EMA window
+  plt.figure(figsize=(16,8))
+  plt.title('Close Price Predictive Model -- Symbol: {}'.format(stock_symbol))
+  plt.xlabel('Date', fontsize=18)
+  plt.ylabel('Close price THB')
+  plt.plot(train['CLOSE'], label= 'Trained Close Price', linewidth = 2)
+  plt.plot(valid['CLOSE'],  label= 'Valid Close Price', color = 'lightskyblue', linewidth = 2)
+  plt.plot(valid['Predictions'],  label= 'Predictive Close Price', color= 'orangered', linewidth = 3)
+  plt.legend(['Train', 'Val', 'Predictions'], loc='lower right')
+  plt.plot(ShortEMA, label= 'EMA10',color = 'darkorange', linewidth = 1)
+  plt.plot(MiddleEMA, label= 'EMA25',color = 'gold', linewidth = 1)
+  plt.plot(LongEMA, label= 'EMA50',color = 'aqua', linewidth = 1)
+  plt.plot(EMA100, label= 'EMA 100',color = 'magenta', linewidth = 1)
+  plt.plot(EMA200, label= 'EMA 200',color = 'lime', linewidth = 1)
+  plt.legend(loc='upper left')
+  plt.show()
+
+  # Plot the MACD window
+  MACD = ShortEMA - LongEMA
+  signal = MACD.ewm(span=9, adjust=False).mean()
+  plt.figure(figsize=(16,3))
+  plt.title('MACD -- Symbol: {}'.format(stock_symbol), fontsize = 18)
+  plt.plot(data.index, MACD, label= 'MACD', color='goldenrod', linewidth = 1.5)
+  plt.bar(data.index,signal,label='Signal Line', color='deepskyblue', linewidth = 1.5)
+  plt.legend(loc='upper left')
+  plt.show()
+
+  # Plot the RSI window
+  delta = data['CLOSE'].diff(1)
+  delta = delta.dropna()
+  up = delta.copy()
+  down = delta.copy()
+  up[up<0] = 0
+  down[down>0] = 0
+  AVG_Gain = up.rolling(window=25).mean()
+  AVG_Loss = abs(down.rolling(window=25).mean())
+  RS = AVG_Gain / AVG_Loss
+  RSI = 100.0 - (100.0 / (1.0 + RS))
+  new_df = pd.DataFrame()
+  new_df['CLOSE'] = data['CLOSE']
+  new_df['RSI'] = RSI
+  new_df
+  plt.figure(figsize=(16,3))
+  plt.title('RSI -- Symbol: {}'.format(stock_symbol))
+  plt.plot(new_df.index, new_df['RSI'], color = 'b', linewidth = 2)
+  plt.axhline(30, linestyle='--', alpha = 1, color='red', linewidth = 2)
+  plt.axhline(45, linestyle='--', alpha = 1, color='goldenrod', linewidth = 2)
+  plt.axhline(55, linestyle='--', alpha = 1, color='goldenrod', linewidth = 2)
+  plt.axhline(70, linestyle='--', alpha = 1, color='limegreen', linewidth = 2)
+  plt.show()
+  # Get the quote from def -- get_stock --
+  df2 = sx.loadHistData(stock_symbol, start=start_date,OHLC=True, Volume=True)
+  # Create a new dataframe
+  new_df2 = df2.filter(['CLOSE'])
+  # Get the last 200 days closing price values and convert the dataframe to an an array
+  last_200_days = new_df2[-200:].values
+  # Scale the data to be values between 0 and 1
+  last_200_days_scaled = scaler.transform(last_200_days)
+  # Create an empty list
+  X_test = []
+  # Append the past 200 days
+  X_test.append(last_200_days_scaled)
+  # Convert the X_test data to a numpy array
+  X_test = np.array(X_test)
+  # Reshape the data
+  X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1],1))
+  #Get the predicted scaled price
+  pred_price = model.predict(X_test)
+  # Undo the scaling
+  pred_price = scaler.inverse_transform(pred_price)
+  print('*************************************')
+  print('Prediction Price = {}'.format(pred_price))
+  print('*************************************')
+  df3 = sx.loadHistData(stock_symbol, start=end_date,end=end_date, OHLC=True, Volume=True)
+  print(df3['CLOSE'])
+  print('*************************************')
